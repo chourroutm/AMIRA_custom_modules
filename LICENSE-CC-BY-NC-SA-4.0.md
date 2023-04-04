@@ -1,4 +1,4 @@
-## creative commons
+```Creative Commons BY-NC-SA```
 
 # Attribution-NonCommercial-ShareAlike 4.0 International
 
