@@ -1,0 +1,13 @@
+module -name "Export Histogram" \
+    -package "py_core" \
+    -category "{Custom}" \
+    -icon "TVDefCompute" \
+    -color $objectsColorsPythonScriptObject \
+    -proc {
+        set this [[create HxPythonScriptObject] setLabel "Export Histogram"]
+        "$this" startStop hideMaskIncrease
+        "$this" filename hideMaskIncrease
+        "$this" filename setValue $AMIRA_ROOT/share/python_script_objects/ExportHistogram.pyscro
+        "$this" startStop hit 0
+        "$this" fire
+    }

@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+from scipy import *
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+class ExportHistogram(PyScriptObject):
+    def __init__(self):
+        self.name = "Export Histogram"
+        self.data.visible = True
+        self.do_it = HxPortDoIt(self, 'apply', 'Apply')
+        self.data.valid_types = self.data.valid_types = ['HxUniformScalarField3']
+        
+        self.bounds = HxPortGeneric(self)
+        self.bounds.name ="Bounds"
+        self.bounds.label ="Bounds"
+        self.bounds.visible = True
+        self.bounds.items = [
+            HxPortGeneric.GenericLabel(caption="min:"),
+            HxPortGeneric.GenericFloatTextEdit(value=0.0),
+            HxPortGeneric.GenericLabel(caption=" max:"),
+            HxPortGeneric.GenericFloatTextEdit(value=1.0),
+            HxPortGeneric.GenericPushButton(caption="By data type"),
+            HxPortGeneric.GenericPushButton(caption="Data min-max")
+        ]
+        
+        self.binning = HxPortGeneric(self)
+        self.binning.name ="Binning"
+        self.binning.label ="Bins"
+        self.binning.visible = True
+        self.binning.items = [
+            HxPortGeneric.GenericLabel(caption="width:"),
+            HxPortGeneric.GenericFloatTextEdit(value=1.0),
+            HxPortGeneric.GenericLabel(caption=" number:"),
+            HxPortGeneric.GenericFloatTextEdit(value=0),
+            HxPortGeneric.GenericLabel(caption=" (set width to 0 to use bin number)"),
+        ]
+        
+        self.locale_options = HxPortMultiMenu(self)
+        self.locale_options.menus = [
+            HxPortButtonMenu.Menu(options=["Comma ',' as delimiter", "Semicolon ';' as delimiter", "Tabulation as delimiter"]),
+            HxPortButtonMenu.Menu(options=["Dot '.' as decimal separator", "Comma ',' as decimal separator"]),
+        ]
+        self.locale_options.name ="LocaleOptions"
+        self.locale_options.label ="Locale Options"
+        self.locale_options.visible = True
+        self.locale_options.position = 1
+        
+        self.histo_output = HxPortFilename(self)
+        self.histo_output.name ="FileToSave"
+        self.histo_output.label ="Histogram Output"
+        self.histo_output.visible = True
+        self.histo_output.mode = HxPortFilename.ANY_FILE
+        self.histo_output.registerfiletype('Delimiter-separated values','csv:tsv:dsv:ssv',0)
+
+    def update(self):
+        if self.bounds.items[4].hit:
+            self.bounds.items[4].hit = False
+            if self.data.source() is None:
+                hx_message.error("Please provide all inputs")
+                return
+            data_array = self.data.source().get_array()
+            if np.issubdtype(data_array.dtype, np.integer):
+                self.bounds.items[1].value = np.iinfo(data_array.dtype).min
+                self.bounds.items[3].value = np.iinfo(data_array.dtype).max
+            if np.issubdtype(data_array.dtype, np.floating):
+                self.bounds.items[1].value = np.finfo(data_array.dtype).min
+                self.bounds.items[3].value = np.finfo(data_array.dtype).max
+        if self.bounds.items[5].hit:
+            self.bounds.items[5].hit = False
+            if self.data.source() is None:
+                hx_message.error("Please provide all inputs")
+                return
+            data_range = self.data.source().range
+            self.bounds.items[1].value = np.amin(data_range)
+            self.bounds.items[3].value = np.amax(data_range)
+        return
+
+    def compute(self):
+        # Check if module is applied
+        if not self.do_it.was_hit:
+            return
+
+        # Check if input data is connected
+        if self.data.source() is None:
+            hx_message.error("Please provide all inputs")
+            return
+        
+        with hx_progress.progress(4,"Configuring histogram...") as progress:
+            list_of_delimiters = [",",";","\t"]
+            select_delimiter = self.locale_options.menus[0]
+            delimiter = list_of_delimiters[select_delimiter.selected]
+            
+            list_of_decimal_separators = [".",","]
+            select_decimal_separator = self.locale_options.menus[1]
+            decimal_separator = list_of_decimal_separators[select_decimal_separator.selected]
+            
+            progress.increase_progress_step()
+            progress.set_text("Preprocessing data for histogram...")
+
+            # Perform your calculations
+            data_array = self.data.source().get_array()
+            
+            bin_width = self.binning.items[1].value
+            bin_number = self.binning.items[3].value
+            lower_bound = self.bounds.items[1].value
+            upper_bound = self.bounds.items[3].value
+            
+            progress.increase_progress_step()
+            progress.set_text("Computing histogram...")
+            if bin_width != 0:
+                histo, bin_edges = np.histogram(data_array, bins=np.arange(lower_bound,upper_bound+bin_width,bin_width),range=(lower_bound,upper_bound))
+            else:
+                histo, bin_edges = np.histogram(data_array, bins=bin_number, range=(lower_bound,upper_bound))
+            
+            progress.increase_progress_step()
+            progress.set_text("Generating histogram file...")
+            # dictionary of lists
+            dict = {'bin_edges': bin_edges, 'counts': np.append(histo,[float("NaN")])}
+                
+            df = pd.DataFrame(dict)
+
+            # saving the dataframe
+            df.to_csv(self.histo_output.filenames, sep=delimiter, decimal=decimal_separator, index=False)
+        
+

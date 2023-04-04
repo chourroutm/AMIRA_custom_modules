@@ -1,0 +1,13 @@
+module -name "Compute Profile" \
+    -package "py_core" \
+    -category "{Custom}" \
+    -icon "TVDefCompute" \
+    -color $objectsColorsPythonScriptObject \
+    -proc {
+        set this [[create HxPythonScriptObject] setLabel "Compute Profile"]
+        "$this" startStop hideMaskIncrease
+        "$this" filename hideMaskIncrease
+        "$this" filename setValue $AMIRA_ROOT/share/python_script_objects/ComputeProfile.pyscro
+        "$this" startStop hit 0
+        "$this" fire
+    }

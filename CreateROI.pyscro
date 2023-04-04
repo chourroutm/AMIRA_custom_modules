@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+from scipy import *
+import numpy as np
+from pathlib import Path
+from _hx_core import _tcl_interp
+import re
+import pandas as pd
+class CreateROI(PyScriptObject):
+    def __init__(self):
+        """
+        Compute attenuation profile along one axis.
+        """
+        self._units_management = _tcl_interp("_units isUnitsManagementActivated") == '1'
+        if self._units_management:
+            self._display_coordinate_unit = _tcl_interp("_units getDisplayCoordinatesUnit")
+            self._unit_conversion_factor = float(_tcl_interp("_units convertFromWorkingCoordinatesUnit 1 "+self._display_coordinate_unit))
+        else:
+            self._display_coordinate_unit = "px"
+            self._unit_conversion_factor = 1
+        
+#        self.info_units = HxPortInfo(self)
+#        self.info_units.label = "Display Unit"
+#        self.info_units.text = self._display_coordinate_unit
+        
+#        self.info_units2 = HxPortInfo(self)
+#        self.info_units2.label = "Internal Conversion Factor"
+#        self.info_units2.text = str(self._conversion_units)
+        
+        self.name = "Create ROI For Profile"
+        self.do_it = HxPortDoIt(self, 'apply', 'Apply')
+
+        self.data.visible = True
+        self.data.label = "Data"
+        self.data.valid_types = ["HxUniformScalarField3"]
+
+        self.roi_width = HxPortFloatSlider(self)
+        self.roi_width.name ="ROIWidth"
+        self.roi_width.label ="ROI Width ["+self._display_coordinate_unit+"]"
+        self.roi_width.visible = True
+        self.roi_width.has_edit_button = False
+        self.roi_width.has_sub_range_buttons = False
+        self.roi_width.clamp_range = (0.0, 1000.0)
+        self.roi_width.value = 200.0
+        
+#        self.locale_options = HxPortMultiMenu(self)
+#        self.locale_options.menus = [
+#            HxPortButtonMenu.Menu(options=["Comma ',' as delimiter", "Semicolon ';' as delimiter", "Tabulation as delimiter"]),
+#            HxPortButtonMenu.Menu(options=["Dot '.' as decimal separator", "Comma ',' as decimal separator"]),
+#        ]
+#        self.locale_options.name ="LocaleOptions"
+#        self.locale_options.label ="Locale Options"
+#        self.locale_options.visible = True
+#        self.locale_options.position = 1
+        
+#        self.direction = HxPortRadioBox(self)
+#        self.direction.radio_boxes = [
+#          HxPortRadioBox.RadioBox(label="X"),
+#          HxPortRadioBox.RadioBox(label="Y"),
+#          HxPortRadioBox.RadioBox(label="Z"),
+#        ]
+#        self.direction.name ="Axis"
+#        self.direction.label ="Axis"
+#        self.direction.visible = True
+#        self.direction.position = 1
+
+        self.crossing_point = HxPort3DPointList(self)
+        self.crossing_point.min_points = 1
+        self.crossing_point.max_points = 1
+        self.crossing_point.points = [HxPort3DPointList.Point(coords=(0.0, 0.0, 0.0))]
+        self.crossing_point.name ="CrossingPoint"
+        self.crossing_point.label ="Crossing Point ["+self._display_coordinate_unit+"]"
+        self.crossing_point.show_dragger = True
+        self.crossing_point.show_points = True
+        self.crossing_point.bounding_box = ((0.0,0.0,0.0),(1.0,1.0,1.0))
+        self.crossing_point.clamped_to_bbox = False
+        self.crossing_point.visible = True
+        self.crossing_point.position = 1
+        
+#        self.profile_output = HxPortFilename(self)
+#        self.profile_output.name ="FileToSave"
+#        self.profile_output.label ="Profile Output"
+#        self.profile_output.visible = True
+#        self.profile_output.mode = HxPortFilename.ANY_FILE
+#        self.profile_output.registerfiletype('Delimiter-separated values','csv:tsv:dsv:ssv',0)
+        
+        # self.directions = HxPortMultiMenu(self)
+        # self.options.menus = [
+        #     HxPortButtonMenu.Menu(options=["Auto-detect format", "8-bit unsigned int", "8-bit RGB", "16-bit unsigned int", "16-bit signed int", "32-bit signed int", "32-bit float", "64-bit float"]),
+        #     HxPortButtonMenu.Menu(options=["Little endian", "Big endian"]),
+        #     HxPortButtonMenu.Menu(options=["X fastest", "Z fastest"])
+        # ]
+        # self.options.name ="Options"
+        # self.options.label ="Options"
+        # self.options.visible = True
+        # self.options.position = 1
+
+    def update(self):
+        if self.data.connected:
+            self._data_bbox = self.data.source().bounding_box
+            self.crossing_point.bounding_box = self._data_bbox
+            self.crossing_point.clamped_to_bbox = True
+        else:
+            self.crossing_point.clamped_to_bbox = False
+
+    def compute(self):
+        # Check if module is applied
+        if not self.do_it.was_hit:
+            return
+        # Check if input data is connected
+        if ( not self.data.connected ):
+            hx_message.error("Please provide all inputs.")
+            return
+        if ( self.roi_width.value == 0.0 ):
+            hx_message.error("ROI Width cannot be set to 0.")
+            return
+            
+        with hx_progress.progress(4,"Configuring profile...") as progress:
+            hx_data = self.data.source()
+            self._data_bbox = hx_data.bounding_box
+            
+#            voxel_sizes = _tcl_interp('"'+hx_data.name+'" getVoxelSize')
+#            voxel_sizes = np.array(voxel_sizes.split(),dtype=numpy.float32)
+            
+            crossing_point_coords = np.array(self.crossing_point.points[0].coords)
+            roi_width = self.roi_width.value / self._unit_conversion_factor
+            #for i in range(3):
+            roi_bbox = np.array([crossing_point_coords - roi_width/2, crossing_point_coords + roi_width/2])
+            
+            list_of_hx_roi = []
+            list_of_hx_roi_names = ["ROI Along X", "ROI Along Y", "ROI Along Z"]
+            for i in range(3):
+                list_of_hx_roi.append(hx_project.create("HxSelectRoi"))
+                list_of_hx_roi[i].name = list_of_hx_roi_names[i]
+                list_of_hx_roi[i].ports.data.connect(hx_data)
+                
+                for u in range(3):
+                    if u != i:
+                        list_of_hx_roi[i].ports.minimum.texts[u].value = roi_bbox[0][u]
+                        list_of_hx_roi[i].ports.maximum.texts[u].value = roi_bbox[1][u]
+                    else:
+                        list_of_hx_roi[i].ports.minimum.texts[u].value = self._data_bbox[0][u]
+                        list_of_hx_roi[i].ports.maximum.texts[u].value = self._data_bbox[1][u]
+                list_of_hx_roi[i].fire()
+            
+#            list_of_delimiters = [",",";","\t"]
+#            select_delimiter = self.locale_options.menus[0]
+#            delimiter = list_of_delimiters[select_delimiter.selected]
+            
+#            list_of_decimal_separators = [".",","]
+#            select_decimal_separator = self.locale_options.menus[1]
+#            decimal_separator = list_of_decimal_separators[select_decimal_separator.selected]
+        
+#            hx_roi = self.roi.source()
+#            hx_data = self.data.source()
+            
+#            progress.increase_progress_step()
+#            progress.set_text("Extracting ROI...")
+            
+#            hx_extract = hx_object_factory.create('HxLatticeAccess')
+#            hx_extract.ports.ROI.connect(hx_roi)
+#            hx_extract.ports.data.connect(hx_data)
+#            hx_extract.execute()
+            
+#            progress.increase_progress_step()
+#            progress.set_text("Passing data to Python...")
+            
+#            sublattice = hx_extract.results[0]
+#            sublattice_array = sublattice.get_array()
+            
+#            progress.increase_progress_step()
+#            progress.set_text("Computing profile...")
+            
+#            mean_over_axes = list(range(0,3))
+#            mean_over_axes.remove(self.direction.selected)
+#            profile = sublattice_array.mean(axis=tuple(mean_over_axes))
+#            positions = np.linspace(sublattice.bounding_box[0][self.direction.selected],sublattice.bounding_box[1][self.direction.selected],len(profile))
+            
+#            progress.increase_progress_step()
+#            progress.set_text("Generating profile file...")
+            # dictionary of lists
+#            dict = {'positions_mm': positions, 'profile_attenuation': profile}
+                
+#            df = pd.DataFrame(dict)
+
+            # saving the dataframe
+#            df.to_csv(self.profile_output.filenames, sep=delimiter, decimal=decimal_separator, index=False)
+
+        return True
+
+class WrongDimError(Exception):
+    """No compatible format detected."""
+    pass

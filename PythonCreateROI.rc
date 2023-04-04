@@ -1,0 +1,13 @@
+module -name "Create ROI For Profile" \
+    -package "py_core" \
+    -category "{Custom}" \
+    -icon "TVDefCompute" \
+    -color $objectsColorsPythonScriptObject \
+    -proc {
+        set this [[create HxPythonScriptObject] setLabel "Create ROI For Profile"]
+        "$this" startStop hideMaskIncrease
+        "$this" filename hideMaskIncrease
+        "$this" filename setValue $AMIRA_ROOT/share/python_script_objects/CreateROI.pyscro
+        "$this" startStop hit 0
+        "$this" fire
+    }
