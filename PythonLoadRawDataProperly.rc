@@ -1,0 +1,13 @@
+module -name "Load Raw Data" \
+    -package "py_core" \
+    -category "{Custom}" \
+    -icon "TVDefCompute" \
+    -color $objectsColorsPythonScriptObject \
+    -proc {
+        set this [[create HxPythonScriptObject] setLabel "Load Raw Data"]
+        "$this" startStop hideMaskIncrease
+        "$this" filename hideMaskIncrease
+        "$this" filename setValue $AMIRA_ROOT/share/python_script_objects/LoadRawDataProperly.pyscro
+        "$this" startStop hit 0
+        "$this" fire
+    }

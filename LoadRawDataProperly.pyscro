@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+from scipy import *
+import numpy as np
+from pathlib import Path
+import re
+class LoadRawDataProperly(PyScriptObject):
+    def __init__(self):
+        """Detects dimensions of a raw 3D image that are stored in the filename -- raw files have no header--, and opens it with the proper scaling and unit.
+        TODO: Support for 16-bit signed integer (short), 32-bit signed integer (int32) and more units.
+        """
+        self.name = "Load Raw Data"
+        self.do_it = HxPortDoIt(self, 'apply', 'Apply')
+        #load -unit Unit -raw FileName Endianess IndexOrder DataType nDataVar dimX dimY dimZ xMin xMax yMin yMax zMin zMax
+        #Unit is the 2-character name of a unit
+        #FileName is the name of the file to load,
+        #Endianess is either little or big,
+        #IndexOrder is either xfastest or zfastest,
+        #DataType is one of byte, short, ushort, int32, float, double,
+        #nDataVar is the number of data values per voxel, e.g., 1 for scalar fields, 3 for vector fields,
+        #dimX dimY dimZ denotes the dimensionality of the data set, and
+        #xMin xMax yMin yMax zMin zMax denotes the bounding box of the data set.
+
+        self.data.visible = False
+
+        self.raw_data = HxPortFilename(self)
+        self.raw_data.name ="FileToLoad"
+        self.raw_data.label ="Raw File"
+        self.raw_data.visible = True
+        self.raw_data.mode = HxPortFilename.EXISTING_FILE
+
+        self.voxel_size_and_unit = HxPortGeneric(self)
+        self.voxel_size_and_unit.name ="VoxelSize2"
+        self.voxel_size_and_unit.label ="Voxel Size"
+        self.voxel_size_and_unit.visible = True
+        self.voxel_size_and_unit.items = [
+            HxPortGeneric.GenericFloatTextEdit(value=1.0),
+            HxPortGeneric.GenericLabel(caption="x"),
+            HxPortGeneric.GenericFloatTextEdit(value=1.0),
+            HxPortGeneric.GenericLabel(caption="x"),
+            HxPortGeneric.GenericFloatTextEdit(value=1.0),
+            HxPortGeneric.GenericComboBox(elements=["[specify unit later]", "nm", chr(181)+"m", "mm", "cm"])
+        ]
+
+        self.options = HxPortMultiMenu(self)
+        self.options.menus = [
+            HxPortButtonMenu.Menu(options=["Auto-detect format", "8-bit unsigned int", "8-bit RGB", "16-bit unsigned int", "16-bit signed int", "32-bit signed int", "32-bit float", "64-bit float"]),
+            HxPortButtonMenu.Menu(options=["Little endian", "Big endian"]),
+            HxPortButtonMenu.Menu(options=["X fastest", "Z fastest"])
+        ]
+        self.options.name ="Options"
+        self.options.label ="Options"
+        self.options.visible = True
+        self.options.position = 1
+
+    def update(self):
+        pass
+
+    def compute(self):
+        # Check if module is applied
+        if not self.do_it.was_hit:
+            return
+        # Check if input data is connected
+        if ( self.raw_data.filenames is None ):
+            hx_message.error("Please provide all inputs.")
+            return
+
+        hx_progress.set_text("Processing")
+
+        list_of_filenames = self.raw_data.filenames
+
+        if type(list_of_filenames) is str:
+            self._load_one_file(list_of_filenames)
+        else :
+            for filename in list_of_filenames:
+                try:
+                    self._load_one_file(filename)
+                except Exception:
+                    continue
+
+        return True
+
+    def autodetect_format(self, filename, dims):
+        size = Path(filename).stat().st_size
+        pdims = np.prod(dims, dtype=np.double)
+        for format,factor in {"byte":1,"_rgb":3,"ushort":2,"float":4,"double":8}.items():
+            if pdims == size / factor:
+                return format
+        raise WrongDimError
+
+    def extract_dims(self, filename):
+        p = re.compile('(?P<x>[0-9]+)x(?P<y>[0-9]+)x(?P<z>[0-9]+)')
+        m = re.search(p,filename)
+        if m is None:
+            hx_message.error("The filename does not contain dimensions of the volume.")
+        else:
+            return [int(m.group('x')),int(m.group('y')),int(m.group('z'))]
+
+    def _load_one_file(self,filename):
+        select_datatype = self.options.menus[0]
+        select_endianess = self.options.menus[1]
+        select_byteorder = self.options.menus[2]
+        select_unit = self.voxel_size_and_unit.items[5]
+        dims = self.extract_dims(filename)
+        # Perform your calculations
+        nb_vars = 1
+        if select_datatype.selected == 0:
+            try:
+                datatype = self.autodetect_format(filename,dims)
+            except WrongDimError:
+                hx_message.error("The 'Auto-detect format' failed. Please set the value manually.")
+                return
+        else:
+            list_of_datatypes = ["", "byte", "_rgb", "ushort", "short", "int32", "float", "double"]
+            datatype = list_of_datatypes[select_datatype.selected]
+
+        if datatype == "_rgb":
+            datatype = "byte"
+            nb_vars = 3
+
+        endianess = "little"
+        if select_endianess.selected == 1:
+            endianess = "big"
+
+        byteorder = "xfastest"
+        if select_byteorder.selected == 1:
+            byteorder = "zfastest"
+
+        hx_progress.stop_working()
+        #result_hxrgba.bounding_box = label_bbox
+        list_of_units = ["", "nm", chr(181)+"m", "mm", "cm"]
+
+        unit = list_of_units[select_unit.selected]
+        [ x_factor, y_factor, z_factor ] = [self.voxel_size_and_unit.items[i].value for i in [0, 2, 4]]
+        if select_unit.selected == 0:
+            tcl_command = "load -raw \"{FileName}\" {Endianess} {IndexOrder} {DataType} {nDataVar} {dimX} {dimY} {dimZ} {xMin} {xMax} {yMin} {yMax} {zMin} {zMax}".format(
+                FileName=filename,
+                Endianess=endianess,
+                IndexOrder=byteorder,
+                DataType=datatype,
+                nDataVar=nb_vars,
+                dimX=dims[0],
+                dimY=dims[1],
+                dimZ=dims[2],
+                xMin=0,
+                yMin=0,
+                zMin=0,
+                xMax=(dims[0]-1) * x_factor,
+                yMax=(dims[1]-1) * y_factor,
+                zMax=(dims[2]-1) * z_factor
+            )
+        else:
+            tcl_command = "load -unit {Unit} -raw \"{FileName}\" {Endianess} {IndexOrder} {DataType} {nDataVar} {dimX} {dimY} {dimZ} {xMin} {xMax} {yMin} {yMax} {zMin} {zMax}".format(
+                Unit=unit,
+                FileName=filename,
+                Endianess=endianess,
+                IndexOrder=byteorder,
+                DataType=datatype,
+                nDataVar=nb_vars,
+                dimX=dims[0],
+                dimY=dims[1],
+                dimZ=dims[2],
+                xMin=0,
+                yMin=0,
+                zMin=0,
+                xMax=(dims[0]-1) * x_factor,
+                yMax=(dims[1]-1) * y_factor,
+                zMax=(dims[2]-1) * z_factor
+            )
+
+        #print(tcl_command)
+
+        tcl_hxmodule = hx_object_factory.create( 'HxScriptObjectText' )
+        tcl_hxmodule.ports.scriptText.text = tcl_command
+        tcl_hxmodule.execute()
+
+class WrongDimError(Exception):
+    """No compatible format detected."""
+    pass
