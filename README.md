@@ -22,3 +22,6 @@ Three modes exist:
 
 ### `ExportHistogram.pyscro` | `PythonExportHistogram.rc`
 Compute histogram of a volume and save the values to a `.csv` file. This does not handle ROI Boxes, thus you would need to use the **Extract Subvolume** module and choose the subvolume as input for the custom module.
+
+### `LoadRawDataProperly.pyscro` | `PythonLoadRawDataProperly.rc`
+Load a `.raw` volume (binary data without headers) with the following naming convention to specify dimensions: `datasetname_1000x1500x2000.raw` for a volume of size 1000 (along X) × 1500 (along Y) × 2000 (along Z). A few options are available. An automatic data-type detector is included.
